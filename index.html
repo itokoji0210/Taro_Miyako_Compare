@@ -104,3 +104,605 @@
   .preload .label{ display:flex; justify-content:space-between; font-size:12px; opacity:.95; }
   .preload .barwrap{
     position:relative; height:10px; border:1px solid #2a3142; border-radius:999px;
+    background:#1b1f2a; overflow:hidden;
+  }
+  .preload .bar{ position:absolute; left:0; top:0; bottom:0; width:0%; background:linear-gradient(90deg,#375a9f,#2b7cff); transition:width .15s linear; }
+  .preload .note{ margin-top:10px; font-size:12px; opacity:.95; }
+  .preload .total{ margin-top:6px; font-size:12px; opacity:.95;}
+  .preload .actions{ margin-top:12px; display:flex; gap:8px; justify-content:flex-end; flex-wrap:wrap;}
+  .preload button{
+    background:#1b1f2a; color:#e8e8e8; border:1px solid #2a3142; border-radius:8px; padding:10px 12px; font-size:14px;
+  }
+  .preload button[disabled]{ opacity:.5; cursor:not-allowed; }
+
+  /* === 動画の外に出すUI群 === */
+  /* 上：モード切替バー（通常時は動画の外。フルスクリーン時は動画上にバッジ表示） */
+  .top-out{display:flex;justify-content:center;gap:10px;margin:6px 0 10px}
+  .mode-btn{padding:8px 12px;border-radius:999px;background:#1b1f2a;border:1px solid #2a3142;font-size:13px;cursor:pointer}
+  .fs .top-out{display:none} /* フルスクリーンでは外のUIは隠す */
+  /* フルスクリーン時のモード表示バッジ（動画上） */
+  .fs .mode-badge-fs{
+    position:absolute;left:50%;top:10px;transform:translateX(-50%);
+    z-index:10;padding:6px 10px;border-radius:999px;background:#1b1f2a;border:1px solid #2a3142;font-size:12px;opacity:.95
+  }
+
+  /* 下：フェード用の大型バー（通常時は動画の外。フルスクリーン時のみ動画上に表示） */
+  .fade-out{display:none}
+  .show-fade-out .fade-out{display:block}
+  .fade-out .wrap2{
+    margin:10px auto 0; width:min(760px,94%);display:flex;align-items:center;gap:12px;
+    background:#131723;border:1px solid #2a3142;border-radius:999px;padding:12px 16px;
+  }
+  .fade-out .wrap2 span{font-size:12px;opacity:.95}
+  .fade-out input{flex:1 1 auto;height:8px}
+  /* フルスクリーン中は動画内に表示（もともとの下部バー） */
+  .fs .fade-bottom{position:absolute;left:0;right:0;bottom:0;z-index:9;display:flex;align-items:center;justify-content:center;gap:10px;
+    padding:12px 14px;background:linear-gradient(0deg,rgba(0,0,0,.70),rgba(0,0,0,0));}
+  .fs.mode-fade .fade-bottom{display:flex}
+
+  /* フルスクリーン・安全領域 */
+  .fs body{padding:0; margin:0}
+  @supports(padding:max(0px)){ .fs .fade-bottom{padding-bottom: max(12px, env(safe-area-inset-bottom)); } }
+
+  /* スマホ向けちょい大きめ */
+  @media (max-width:640px){
+    .controls button,.controls select{font-size:15px;padding:10px 12px}
+    .handle{width:28px;height:28px}
+  }
+  @keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+  <header class="wrap">
+    <h1>過去 × 今｜YouTube 比較（中央スライダー：左=過去／右=今）</h1>
+    <p>既定は中央スライダー（自動デモあり）。フェード比較も可。再生・シークは2本を同期します。</p>
+  </header>
+
+  <!-- 動画の外：上側のモード切替 -->
+  <div class="wrap top-out" aria-label="モード切替（動画の外）">
+    <button id="modeBtn" class="mode-btn" type="button" title="スライダー／フェード切替">モード：スライダー</button>
+  </div>
+
+  <main class="wrap">
+    <section id="compare" class="compare mode-slider" aria-label="YouTube比較">
+      <!-- フルスクリーン時のみ使うモード表示バッジ -->
+      <div id="modeBadgeFS" class="mode-badge-fs" style="display:none">モード：スライダー</div>
+
+      <!-- 角ラベル：昔（左上）／今（右上） -->
+      <div class="corner" aria-hidden="true">2011年3月12日</div>
+      <div class="corner right" aria-hidden="true">2025年6月</div>
+
+      <!-- 下：昔 -->
+      <div class="layer bottom"><div id="pastBox" class="ytbox"></div></div>
+      <!-- 上：今 -->
+      <div class="layer top" id="topLayer"><div id="nowBox" class="ytbox"></div></div>
+
+      <!-- 誤タップ停止防止 -->
+      <div class="clickshield" id="clickshield"></div>
+
+      <!-- 中央スライダー -->
+      <div class="slider-rail" aria-hidden="true">
+        <div class="split-line" id="splitLine"></div>
+        <div class="handle" id="handle" tabindex="0" role="slider" aria-valuemin="0" aria-valuemax="100" aria-valuenow="50" aria-label="比較位置"></div>
+      </div>
+
+      <!-- ローディング -->
+      <div class="loading" id="loading"><div class="spinner"></div></div>
+
+      <!-- 初回注釈ガイド -->
+      <div class="guide" id="guide">
+        <div class="box">
+          <h3>操作ガイド</h3>
+          <div class="bullet">🖱️ スライダーを<strong>ドラッグ</strong>して「過去 ↔ 今」を比較できます。</div>
+          <div class="bullet">🔄 <strong>モード切替</strong>で、フェード比較にもできます（動画の上のボタン／フルスクリーン時はバッジ）。</div>
+          <div class="bullet">▶️ <strong>再生</strong>で2本のYouTubeを同期再生します。</div>
+          <button id="guideClose">OK</button>
+        </div>
+      </div>
+
+      <!-- 事前バッファのプレロードゲート（進捗強化＆数回デモ往復） -->
+      <div class="preload" id="preload">
+        <div class="panel">
+          <h3>読み込み準備中…（最適化してから再生します）</h3>
+
+          <div class="row">
+            <div class="label"><span>昔（左）</span><span id="prePastPct">0%</span></div>
+            <div class="barwrap"><div class="bar" id="prePastBar"></div></div>
+          </div>
+
+          <div class="row">
+            <div class="label"><span>今（右）</span><span id="preNowPct">0%</span></div>
+            <div class="barwrap"><div class="bar" id="preNowBar"></div></div>
+          </div>
+
+          <div class="total" id="preTotal">合計進捗：0%</div>
+          <div class="note" id="preNote">操作のイメージが分かるよう、中央スライダーが自動で数回往復します。</div>
+          <div class="actions">
+            <button id="preSkip">スキップして再生</button>
+            <button id="preStart" disabled>準備できたら再生</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- フルスクリーン時のみ使うフェードUI（動画上） -->
+      <div class="fade-bottom" id="fadeBottom" style="display:none">
+        <div class="wrap2">
+          <span>昔</span>
+          <input id="fadeBottomRange" type="range" min="0" max="100" value="100" step="1" aria-label="フェード（昔↔今）">
+          <span>今</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- タイムライン -->
+    <section class="timeline" aria-label="タイムライン">
+      <div class="time" id="timeCur">00:00</div>
+      <div class="scrub-wrap">
+        <div class="buffer"><div class="bar" id="bufferBar"></div></div>
+        <input id="scrub" class="scrub" type="range" min="0" max="1" step="0.0001" value="0" aria-label="再生位置">
+      </div>
+      <div class="time" id="timeDur">--:--</div>
+    </section>
+
+    <!-- 操作群 -->
+    <section class="controls" aria-label="再生コントロール">
+      <button id="playBtn"   type="button" title="再生">▶︎ 再生</button>
+      <button id="pauseBtn"  type="button" title="停止">⏸ 停止</button>
+      <button id="revBtn"    type="button" title="逆再生トグル">↶ 逆再生</button>
+      <button id="stepBack"  type="button" title="コマ戻し">⟲ コマ戻し</button>
+      <button id="stepFwd"   type="button" title="コマ送り">⟳ コマ送り</button>
+      <button id="restartBtn"type="button" title="先頭">↺ 先頭</button>
+      <button id="muteBtn"   type="button" title="ミュート">🔇 ミュート</button>
+
+      <select id="speedSel" title="再生速度">
+        <option value="0.25">0.25×</option>
+        <option value="0.5">0.5×</option>
+        <option value="1" selected>1×</option>
+        <option value="1.5">1.5×</option>
+        <option value="2">2×</option>
+      </select>
+
+      <div class="range">
+        <span id="rangeLabel">比較（スライダー）：</span>
+        <input id="range" type="range" min="0" max="100" value="50" step="0.1" aria-label="比較位置スライダー">
+      </div>
+
+      <button id="fsBtn" type="button" title="フルスクリーン">⛶ 全画面</button>
+    </section>
+
+    <!-- 動画の外：下側（フェード用大型バー：フェード時だけ表示） -->
+    <section id="fadeOut" class="fade-out" aria-label="フェード（動画の外・真下）">
+      <div class="wrap2">
+        <span>昔</span>
+        <input id="fadeOutRange" type="range" min="0" max="100" value="100" step="1" aria-label="フェード（昔↔今）">
+        <span>今</span>
+      </div>
+    </section>
+  </main>
+
+<script>
+/* ====== 設定：動画ID（差し替え） ====== */
+const YT_PAST_ID = 'fiPFFeMANPE';   // 昔（左）
+const YT_NOW_ID  = 'PcQBo31ou10';   // 今（右）
+
+/* ====== 参照 ====== */
+const compare   = document.getElementById('compare');
+const handle    = document.getElementById('handle');
+const range     = document.getElementById('range');
+const modeBtn   = document.getElementById('modeBtn');
+const modeBadgeFS = document.getElementById('modeBadgeFS');
+const fadeBottomRange = document.getElementById('fadeBottomRange');
+const fadeOutRange = document.getElementById('fadeOutRange');
+const loading   = document.getElementById('loading');
+const timeCur   = document.getElementById('timeCur');
+const timeDur   = document.getElementById('timeDur');
+const scrub     = document.getElementById('scrub');
+const bufferBar = document.getElementById('bufferBar');
+const playBtn   = document.getElementById('playBtn');
+const pauseBtn  = document.getElementById('pauseBtn');
+const restartBtn= document.getElementById('restartBtn');
+const muteBtn   = document.getElementById('muteBtn');
+const speedSel  = document.getElementById('speedSel');
+const fsBtn     = document.getElementById('fsBtn');
+const clickshield= document.getElementById('clickshield');
+const fadeBottom = document.getElementById('fadeBottom');
+const fadeOut = document.getElementById('fadeOut');
+
+const guide = document.getElementById('guide');
+const guideClose = document.getElementById('guideClose');
+
+/* プレロードUI */
+const preload   = document.getElementById('preload');
+const prePastBar= document.getElementById('prePastBar');
+const preNowBar = document.getElementById('preNowBar');
+const prePastPct= document.getElementById('prePastPct');
+const preNowPct = document.getElementById('preNowPct');
+const preStart  = document.getElementById('preStart');
+const preSkip   = document.getElementById('preSkip');
+const preNote   = document.getElementById('preNote');
+const preTotal  = document.getElementById('preTotal');
+
+let mode='slider'; // 既定：スライダー
+let split=50;
+function setSplit(p){
+  split=Math.max(0,Math.min(100,p));
+  document.documentElement.style.setProperty('--split', split.toFixed(2)+'%');
+  handle.setAttribute('aria-valuenow', split.toFixed(1));
+  range.value=split;
+}
+function setFade(p){
+  const v=Math.max(0,Math.min(100,p))/100;
+  document.documentElement.style.setProperty('--fade', v.toFixed(3));
+  if(fadeBottomRange) fadeBottomRange.value=Math.round(p);
+  if(fadeOutRange) fadeOutRange.value=Math.round(p);
+}
+setSplit(50); setFade(100);
+
+/* ====== モード切替（通常は動画の外、FS時はバッジ表示） ====== */
+function applyMode(m){
+  mode=m;
+  compare.classList.toggle('mode-fade',   m==='fade');
+  compare.classList.toggle('mode-slider', m==='slider');
+  const label = 'モード：' + (m==='fade'?'フェード':'スライダー');
+  modeBtn.textContent = label;
+  modeBadgeFS.textContent = label;
+  document.getElementById('rangeLabel').textContent = (m==='fade'?'フェード：':'比較（スライダー）：');
+  // 動画の外のフェードバー表示切替
+  document.body.classList.toggle('show-fade-out', m==='fade' && !document.fullscreenElement);
+  // フルスクリーン時は動画内フェードバー表示
+  fadeBottom.style.display = (m==='fade' && document.fullscreenElement) ? 'flex' : 'none';
+}
+applyMode('slider');
+modeBtn.addEventListener('click', ()=> applyMode(mode==='fade'?'slider':'fade'));
+[fadeBottomRange, fadeOutRange].forEach(el=>{
+  if(el) el.addEventListener('input', e=> setFade(parseFloat(e.target.value)));
+});
+
+/* ====== 中央スライダー（クリック・ドラッグ） ====== */
+function clientXToPercent(clientX){
+  const r=compare.getBoundingClientRect(); return (clientX-r.left)/r.width*100;
+}
+let dragging=false;
+function startDrag(){ dragging=true; document.body.style.cursor='ew-resize'; stopDemo(); }
+function moveDrag(e){
+  if(!dragging) return;
+  const x = (e.touches && e.touches[0]) ? e.touches[0].clientX : e.clientX;
+  mode==='slider' ? setSplit(clientXToPercent(x)) : setFade(clientXToPercent(x));
+}
+function endDrag(){ dragging=false; document.body.style.cursor=''; }
+handle.addEventListener('mousedown', startDrag);
+window.addEventListener('mousemove', moveDrag, {passive:true});
+window.addEventListener('mouseup', endDrag);
+handle.addEventListener('touchstart', e=>{e.preventDefault();startDrag();},{passive:false});
+window.addEventListener('touchmove', moveDrag, {passive:false});
+window.addEventListener('touchend', endDrag);
+compare.addEventListener('pointerdown', e=>{
+  if(e.target!==handle){
+    const p=clientXToPercent(e.clientX);
+    mode==='slider'?setSplit(p):setFade(p);
+    stopDemo();
+  }
+});
+range.addEventListener('input', e=>{
+  const p=parseFloat(e.target.value);
+  mode==='slider'?setSplit(p):setFade(p);
+  stopDemo();
+});
+
+/* ====== デモ往復（初期は数回だけ往復 → 要望どおり） ====== */
+let demoRAF=null, demoDir=1, demoStart=null, demoTrips=0, demoMaxTrips=4; // 往復2回分=4片道
+function demoStep(ts){
+  if(!demoStart) demoStart=ts;
+  const dur=2600; // 2.6sで片道
+  const t=(ts-demoStart)%dur;
+  const k=t/dur;
+  const a=20, b=80; // 20%⇔80%を往復
+  const val = demoDir>0 ? (a + (b-a)*k) : (b - (b-a)*k);
+  setSplit(val);
+  if(k>=0.999){
+    demoDir*=-1; demoStart=ts; demoTrips++;
+    if(preload.classList.contains('show') && demoTrips>=demoMaxTrips){
+      // 規定回数が終わったら停止（プレロードが長引けばループ延長）
+      stopDemo();
+    }
+  }
+  demoRAF=requestAnimationFrame(demoStep);
+}
+function startDemo(){ if(!demoRAF) demoRAF=requestAnimationFrame(demoStep); }
+function stopDemo(){ if(demoRAF){ cancelAnimationFrame(demoRAF); demoRAF=null; } }
+startDemo();
+
+/* ====== クリックで停止しない ====== */
+clickshield.addEventListener('click', ()=>{}); // no-op
+
+/* ====== フルスクリーン（iOSフォールバック含む） ====== */
+function enterFullscreen(el){
+  const anyEl = el;
+  if(anyEl.requestFullscreen) return anyEl.requestFullscreen();
+  if(anyEl.webkitRequestFullscreen) return anyEl.webkitRequestFullscreen(); // iOS Safari
+  if(anyEl.msRequestFullscreen) return anyEl.msRequestFullscreen();
+}
+function exitFullscreen(){
+  if(document.exitFullscreen) return document.exitFullscreen();
+  if(document.webkitExitFullscreen) return document.webkitExitFullscreen();
+  if(document.msExitFullscreen) return document.msExitFullscreen();
+}
+function isFullscreen(){
+  return !!(document.fullscreenElement || document.webkitFullscreenElement || document.msFullscreenElement);
+}
+document.addEventListener('fullscreenchange', onFSChange);
+document.addEventListener('webkitfullscreenchange', onFSChange);
+function onFSChange(){
+  const fs = isFullscreen();
+  document.body.classList.toggle('fs', fs);
+  // 外UIの表示調整
+  modeBadgeFS.style.display = fs ? 'block' : 'none';
+  fadeBottom.style.display  = (mode==='fade' && fs) ? 'flex' : 'none';
+  document.body.classList.toggle('show-fade-out', mode==='fade' && !fs);
+}
+fsBtn.addEventListener('click', async ()=>{
+  try{
+    if(!isFullscreen()){ await enterFullscreen(compare); }
+    else { await exitFullscreen(); }
+  }catch(e){}
+});
+
+/* ====== YouTube IFrame API ====== */
+let pastPlayer, nowPlayer;
+let readyPast=false, readyNow=false;
+let rafId=null, tickTimer=null;
+let reverseRAF=null;
+const SYNC_EPS=0.20;
+
+/* ローディングオーバーレイ */
+function showLoading(){ loading.classList.add('show'); }
+function hideLoading(){ loading.classList.remove('show'); }
+
+/* 時刻UI */
+function formatTime(sec){
+  if(!isFinite(sec)) return '--:--';
+  const s=Math.max(0,Math.floor(sec)), h=Math.floor(s/3600), m=Math.floor((s%3600)/60), r=s%60;
+  return h>0 ? `${h}:${String(m).padStart(2,'0')}:${String(r).padStart(2,'0')}` : `${m}:${String(r).padStart(2,'0')}`;
+}
+function updateDuration(){
+  const d=Math.min(pastPlayer?.getDuration()||0, nowPlayer?.getDuration()||0);
+  if(d>0){ timeDur.textContent=formatTime(d); scrub.max=d; }
+}
+function updateTimeUI(){
+  const t=Math.min(pastPlayer?.getCurrentTime()||0, nowPlayer?.getCurrentTime()||0);
+  const d=Math.min(pastPlayer?.getDuration()||0, nowPlayer?.getDuration()||0);
+  timeCur.textContent=formatTime(t);
+  if(d>0){ scrub.value=t; }
+  const frac = nowPlayer?.getVideoLoadedFraction ? nowPlayer.getVideoLoadedFraction() : 0;
+  bufferBar.style.width = Math.max(0, Math.min(100, frac*100)) + '%';
+}
+function seekBoth(t){
+  const d=Math.min(pastPlayer?.getDuration()||0, nowPlayer?.getDuration()||0);
+  const clamped=Math.max(0, Math.min(d||0, t));
+  pastPlayer?.seekTo(clamped, true);
+  nowPlayer?.seekTo(clamped, true);
+  updateTimeUI();
+}
+
+/* 同期ループ（再生中のみ吸着） */
+const SOFT_HOLD = 0.30;
+function syncTick(){
+  if(!(readyPast&&readyNow)) return;
+  const tp=pastPlayer.getCurrentTime(), tn=nowPlayer.getCurrentTime();
+  const dp=Math.abs(tp-tn);
+  const np=nowPlayer.getPlayerState(), pp=pastPlayer.getPlayerState();
+  if(np===1 || pp===1){
+    if(dp>SOFT_HOLD && tn>tp){
+      try{ nowPlayer.pauseVideo(); }catch(e){}
+      setTimeout(()=>{ try{ nowPlayer.playVideo(); }catch(e){} }, 200);
+    }else if(dp>SYNC_EPS){
+      pastPlayer.seekTo(tn, true);
+    }
+  }
+  updateTimeUI();
+  rafId=requestAnimationFrame(syncTick);
+}
+function startSync(){ if(!rafId){ rafId=requestAnimationFrame(syncTick); } if(!tickTimer){ tickTimer=setInterval(updateTimeUI,200); } }
+function stopSync(){ if(rafId){ cancelAnimationFrame(rafId); rafId=null; } if(tickTimer){ clearInterval(tickTimer); tickTimer=null; } }
+
+/* 再生・停止・速度・コマ送り/戻し・逆再生 */
+function playBoth(){
+  if(!(readyPast&&readyNow)) return;
+  pastPlayer.playVideo(); nowPlayer.playVideo();
+  stopDemo();
+}
+function pauseBoth(){ pastPlayer?.pauseVideo(); nowPlayer?.pauseVideo(); }
+playBtn.addEventListener('click', ()=>{
+  if(!(readyPast && readyNow)) return;
+  if(preload.classList.contains('show')){
+    preNote.textContent = '読み込み準備中です。下のボタンから再生できます。';
+    return;
+  }
+  playBoth();
+});
+pauseBtn.addEventListener('click', ()=> pauseBoth());
+restartBtn.addEventListener('click', ()=> seekBoth(0));
+muteBtn.addEventListener('click', ()=>{
+  const muted = nowPlayer?.isMuted?.();
+  if(muted){ nowPlayer.unMute(); pastPlayer.unMute(); muteBtn.textContent='🔇 ミュート'; }
+  else{ nowPlayer.mute(); pastPlayer.mute(); muteBtn.textContent='🔊 ミュート解除'; }
+});
+speedSel.addEventListener('change', ()=>{
+  const r=parseFloat(speedSel.value)||1;
+  nowPlayer?.setPlaybackRate?.(r);
+  pastPlayer?.setPlaybackRate?.(r);
+});
+scrub.addEventListener('input', e=> seekBoth(parseFloat(e.target.value)));
+
+/* コマ送り/戻し（1/30秒刻み） */
+const frameSec=1/30;
+document.getElementById('stepFwd').addEventListener('click', ()=>{ pauseBoth(); seekBoth((nowPlayer?.getCurrentTime()||0)+frameSec); });
+document.getElementById('stepBack').addEventListener('click', ()=>{ pauseBoth(); seekBoth((nowPlayer?.getCurrentTime()||0)-frameSec); });
+
+/* 逆再生（簡易） */
+function reverseLoop(){
+  const rate=parseFloat(speedSel.value)||1;
+  const step=(1/60)*rate;
+  const t=Math.max(0,(nowPlayer?.getCurrentTime()||0)-step);
+  seekBoth(t);
+  if(t<=0){ stopReverse(); pauseBoth(); return; }
+  reverseRAF=requestAnimationFrame(reverseLoop);
+}
+function startReverse(){
+  pauseBoth();
+  if(!reverseRAF){
+    reverseRAF=requestAnimationFrame(reverseLoop);
+    document.getElementById('revBtn').textContent='⏹ 逆再生停止';
+    stopDemo();
+  }
+}
+function stopReverse(){
+  if(reverseRAF){ cancelAnimationFrame(reverseRAF); reverseRAF=null; document.getElementById('revBtn').textContent='↶ 逆再生'; }
+}
+document.getElementById('revBtn').addEventListener('click', ()=> reverseRAF?stopReverse():startReverse());
+
+/* ====== 事前バッファ：見える化強化 ====== */
+const PRE_SLOW = 0.06;
+const PRE_FAST = 0.03;
+const PRE_TIMEOUT = 9000;
+
+let preloadTimer=null, preloadResolving=false;
+function showPreload(){ preload.classList.add('show'); }
+function hidePreload(){ preload.classList.remove('show'); }
+function getFrac(p){ return p?.getVideoLoadedFraction ? p.getVideoLoadedFraction() : 0; }
+function updatePreloadUI(fp, fn){
+  const pPast = Math.round(Math.max(0, Math.min(1, fp))*100);
+  const pNow  = Math.round(Math.max(0, Math.min(1, fn))*100);
+  prePastBar.style.width = pPast + '%';
+  preNowBar.style.width  = pNow  + '%';
+  prePastPct.textContent = pPast + '%';
+  preNowPct.textContent  = pNow  + '%';
+  const total = Math.round((pPast + pNow)/2);
+  preTotal.textContent = '合計進捗：' + total + '%';
+}
+function decideReady(fp, fn){
+  const pastIsSlow = fp < fn - 0.03;
+  const okPast = fp >= (pastIsSlow ? PRE_SLOW : PRE_FAST);
+  const okNow  = fn >= (pastIsSlow ? PRE_FAST : PRE_SLOW);
+  return okPast && okNow;
+}
+function startPreloadWait(){
+  if(preloadResolving) return;
+  preloadResolving = true;
+  showPreload();
+  preStart.disabled = true;
+  demoTrips = 0; // デモ往復カウンタをリセット
+  startDemo();   // 読み込み中は数回だけ自動往復
+
+  const t0 = performance.now();
+  function tick(){
+    const fp = getFrac(pastPlayer), fn = getFrac(nowPlayer);
+    updatePreloadUI(fp, fn);
+
+    if(decideReady(fp, fn)){
+      preNote.textContent = '準備完了：再生できます。必要なら「準備できたら再生」を押してください。';
+      preStart.disabled = false;
+    }else{
+      preStart.disabled = true;
+      preNote.textContent = '読み込み中… ネットワーク状況により時間がかかる場合があります（スライダーが自動で数回往復します）。';
+    }
+    if(performance.now() - t0 > PRE_TIMEOUT){
+      preNote.textContent = '十分に読み込めませんでしたが再生可能です（スキップ可）。';
+      preStart.disabled = false; // タイムアウト後は許可
+      // まだデモが動いていれば止める
+      stopDemo();
+    }
+  }
+  tick();
+  preloadTimer = setInterval(tick, 150);
+}
+function stopPreloadWait(){
+  if(preloadTimer){ clearInterval(preloadTimer); preloadTimer=null; }
+  preloadResolving=false;
+  hidePreload();
+}
+
+/* 読み込みが遅い場合の軽量化（過去側） */
+function lowerPastQualityTemporarily(){ try{ pastPlayer.setPlaybackQuality('hd720'); }catch(e){} }
+function restorePastQuality(){ try{ pastPlayer.setPlaybackQuality('hd1080'); }catch(e){} }
+let microSeekTimer=null;
+function startMicroSeekOnPast(){
+  stopMicroSeek();
+  let dir=1, pos=0.0;
+  microSeekTimer = setInterval(()=>{
+    pos = (dir>0)? 0.5 : 0.0; // 0s↔0.5s 往復
+    try{ pastPlayer.seekTo(pos, true); }catch(e){}
+    dir *= -1;
+  }, 700);
+}
+function stopMicroSeek(){ if(microSeekTimer){ clearInterval(microSeekTimer); microSeekTimer=null; } }
+
+/* プレロード内のボタン */
+preStart.addEventListener('click', ()=>{
+  stopPreloadWait(); stopMicroSeek(); stopDemo();
+  const t = Math.min(pastPlayer.getCurrentTime()||0, nowPlayer.getCurrentTime()||0);
+  pastPlayer.seekTo(t, true); nowPlayer.seekTo(t, true);
+  pastPlayer.playVideo(); nowPlayer.playVideo();
+  setTimeout(()=> restorePastQuality(), 3000);
+});
+preSkip.addEventListener('click', ()=>{
+  stopPreloadWait(); stopMicroSeek(); stopDemo();
+  pastPlayer.playVideo(); nowPlayer.playVideo();
+  setTimeout(()=> restorePastQuality(), 3000);
+});
+
+/* ====== YouTube IFrame API 読み込み＆プレイヤー生成 ====== */
+const tag=document.createElement('script');
+tag.src="https://www.youtube.com/iframe_api";
+document.head.appendChild(tag);
+window.onYouTubeIframeAPIReady = function(){
+  const playerVars = { playsinline:1, controls:0, rel:0, fs:0, iv_load_policy:3, disablekb:1, origin: location.origin };
+  showLoading();
+  pastPlayer = new YT.Player('pastBox', {
+    videoId: YT_PAST_ID, width:'100%', height:'100%', playerVars,
+    events:{ onReady: e=>{ readyPast=true; e.target.mute(); checkReady(); }, onStateChange: onStateChange }
+  });
+  nowPlayer = new YT.Player('nowBox', {
+    videoId: YT_NOW_ID, width:'100%', height:'100%', playerVars,
+    events:{ onReady: e=>{ readyNow=true; e.target.mute(); checkReady(); }, onStateChange: onStateChange }
+  });
+};
+function onStateChange(ev){
+  const s=ev.data; // -1 未開始,0 終了,1 再生,2 停止,3 バッファ,5 cued
+  if(s===3){ showLoading(); }
+  if(s===1||s===2||s===5){ hideLoading(); }
+  if(s===0){ pauseBoth(); }
+}
+
+/* プレイヤー準備完了時 */
+function checkReady(){
+  if(readyPast && readyNow){
+    hideLoading();
+    updateDuration();
+    updateTimeUI();
+    startSync();
+
+    // 初回注釈（1回だけ）
+    if(!localStorage.getItem('ytCompareGuideSeen')){
+      guide.classList.add('show');
+    }
+
+    // 事前バッファ開始（見える化＋数回デモ往復）
+    startPreloadWait();
+
+    // 過去が遅そうなら軽く品質ダウン＆マイクロシーク
+    const fP = getFrac(pastPlayer), fN = getFrac(nowPlayer);
+    if(fP < fN - 0.03){ lowerPastQualityTemporarily(); startMicroSeekOnPast(); }
+  }
+}
+
+/* 初回注釈 */
+function hideGuide(){
+  guide.classList.remove('show');
+  localStorage.setItem('ytCompareGuideSeen','1');
+  stopDemo(); // ユーザーが閉じたらデモ停止
+}
+guideClose.addEventListener('click', hideGuide);
+</script>
+</body>
+</html>
