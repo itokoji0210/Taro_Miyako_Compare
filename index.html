@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>YouTube 比較（中央スライダー既定：左=過去／右=今｜プレローダー＋同期）</title>
+<style>
+  :root{
+    --split:50%;
+    --fade:1;                 /* 1=今(上100%) / 0=昔(上0%) */
+    --accent:#2b7cff;
+    --radius:12px;
+    --timeline:#2b7cff;
+    --timeline-bg:#1b1f2a;
+    --timeline-border:#2a3142;
+    --compare-bg:#2a2f3d;
+  }
+  /* 基本 */
+  html,body{height:100%; background:#0f1115}
+  body{margin:0;color:#e8e8e8;font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Hiragino Sans","Noto Sans JP",sans-serif}
+  header{padding:14px 16px 6px}
+  h1{font-size:clamp(16px,2.6vw,20px);margin:0 0 6px}
+  p{margin:0;font-size:12px;opacity:.85}
+  .wrap{max-width:1200px;margin:10px auto 18px;padding:0 12px}
+
+  /* 比較プレイヤー */
+  .compare{position:relative;width:100%;aspect-ratio:16/9;background:#000;border-radius:var(--radius);overflow:hidden}
+  /* フルスクリーン時は安全領域含めて画面いっぱい */
+  .fs .compare{width:100vw;height:100svh;aspect-ratio:auto;border-radius:0}
+  .layer{position:absolute;inset:0}
+  .ytbox{position:absolute;inset:0}
+
+  /* モード：スライダー / フェード */
+  .mode-slider .top{opacity:1;clip-path:inset(0 0 0 var(--split))}
+  .mode-fade   .top{opacity:var(--fade);transition:opacity .06s linear;clip-path:inset(0 0 0 0)}
+
+  /* クリックガード（誤タップ停止防止） */
+  .clickshield{position:absolute;inset:0;z-index:5;pointer-events:auto}
+
+  /* スライダー（デモ往復あり／フェード時は非表示） */
+  .slider-rail{position:absolute;inset:0;pointer-events:none;z-index:7}
+  .split-line{position:absolute;top:0;bottom:0;left:var(--split);transform:translateX(-50%);width:2px;background:rgba(255,255,255,.92)}
+  .handle{position:absolute;top:50%;left:var(--split);transform:translate(-50%,-50%);width:26px;height:26px;border-radius:50%;background:#fff;box-shadow:0 2px 10px rgba(0,0,0,.35);pointer-events:auto;cursor:ew-resize;touch-action:none}
+  .mode-fade .slider-rail{display:none}
+
+  /* ローディング */
+  .loading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:linear-gradient(180deg,rgba(0,0,0,.35),rgba(0,0,0,.6));z-index:8;opacity:0;visibility:hidden;transition:.2s}
+  .loading.show{opacity:1;visibility:visible}
+  .spinner{width:36px;height:36px;border:3px solid #ffffff40;border-top-color:#fff;border-radius:50%;animation:spin 1s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+
+  /* タイムライン */
+  .timeline{display:flex;align-items:center;gap:8px;margin:8px 0 2px;font-size:12px}
+  .time{min-width:72px;text-align:center;font-variant-numeric:tabular-nums}
+  .scrub-wrap{position:relative;flex:1 1 auto}
+  .buffer{position:absolute;left:0;right:0;top:50%;height:6px;transform:translateY(-50%);background:var(--timeline-bg);border:1px solid var(--timeline-border);border-radius:999px;overflow:hidden}
+  .buffer>.bar{height:100%;width:0%;background:linear-gradient(90deg,#375a9f,#2b7cff)}
+  .scrub{-webkit-appearance:none;appearance:none;width:100%;height:6px;background:transparent;position:relative}
+  .scrub::-webkit-slider-thumb{-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:#fff;border:1px solid #00000030}
+  .scrub::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:#fff;border:1px solid #00000030}
+
+  /* 操作群 */
+  .controls{display:flex;flex-wrap:wrap;gap:8px 10px;align-items:center;padding:10px 2px}
+  .controls button,.controls select,.controls input[type="range"]{background:#1b1f2a;color:#e8e8e8;border:1px solid #2a3142;border-radius:10px;padding:10px 12px;font-size:15px}
+  .range{flex:1 1 220px;display:flex;align-items:center;gap:8px}
+  #range{-webkit-appearance:none;appearance:none;width:100%;height:8px;background:var(--compare-bg);border-radius:999px}
+  #range::-webkit-slider-thumb,#range::-moz-range-thumb{width:16px;height:16px;border-radius:50%;background:#fff;border:1px solid #00000030}
+
+  /* 「角ラベル」 */
+  .corner{position:absolute;top:10px;left:10px;z-index:6;padding:6px 10px;font-size:12px;border-radius:8px;background:rgba(0,0,0,.55);border:1px solid #2a3142}
+  .corner.right{left:auto;right:10px}
+
+  /* 初回注釈ガイド */
+  .guide{
+    position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    background:rgba(0,0,0,.55);color:#fff;z-index:20;opacity:0;visibility:hidden;transition:.3s;
+  }
+  .guide.show{opacity:1;visibility:visible;}
+  .guide .box{
+    background:rgba(0,0,0,.8);padding:16px 20px;border-radius:12px;max-width:92%;
+    text-align:center;font-size:14px;line-height:1.6;box-shadow:0 8px 30px rgba(0,0,0,.35);
+  }
+  .guide .box h3{margin:0 0 8px;font-size:16px;}
+  .guide .bullet{margin:.25em 0}
+  .guide button{
+    margin-top:12px;padding:8px 14px;border:1px solid #2a3142;border-radius:8px;background:#1b1f2a;color:#fff;cursor:pointer;
+  }
+
+  /* 事前バッファ用 プレロードゲート（進捗見える化強化） */
+  .preload {
+    position:absolute; inset:0; z-index:15;
+    display:flex; align-items:center; justify-content:center;
+    background:linear-gradient(180deg,rgba(0,0,0,.75),rgba(0,0,0,.55));
+    color:#fff; opacity:0; visibility:hidden; transition:.25s;
+  }
+  .preload.show { opacity:1; visibility:visible; }
+  .preload .panel{
+    width:min(560px,92%); background:rgba(0,0,0,.7);
+    border:1px solid #2a3142; border-radius:12px; padding:16px 18px;
+    box-shadow:0 8px 30px rgba(0,0,0,.35);
+  }
+  .preload h3{ margin:0 0 10px; font-size:16px; }
+  .preload .row{ margin:8px 0; }
+  .preload .label{ display:flex; justify-content:space-between; font-size:12px; opacity:.95; }
+  .preload .barwrap{
+    position:relative; height:10px; border:1px solid #2a3142; border-radius:999px;
